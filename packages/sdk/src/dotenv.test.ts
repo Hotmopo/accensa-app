@@ -9,7 +9,11 @@ import {
   parseDotenvFile,
   DotenvParseError,
 } from './env-file.js';
-import { DotenvError, DotenvParseError as DotenvParseErrorBase } from './errors.js';
+import {
+  DotenvError,
+  DotenvParseError as DotenvParseErrorBase,
+  DotenvLoadError,
+} from './errors.js';
 
 /**
  * Test strategy for `.env.example` in packages/sdk/examples/express-server:
@@ -131,9 +135,9 @@ describe('parseDotenvFile() failure modes', () => {
     try {
       parseDotenvFile(file);
     } catch (error) {
-      expect(error).toBeInstanceOf(DotenvParseError);
-      expect((error as DotenvParseError).offendingLine).toBe(2);
-      expect((error as DotenvParseError).filePath).toBe(file);
+      expect(error).toBeInstanceOf(DotenvParseErrorBase);
+      expect((error as DotenvParseErrorBase).offendingLine).toBe(2);
+      expect((error as DotenvParseErrorBase).filePath).toBe(file);
     } finally {
       rmSync(file, { force: true });
     }
