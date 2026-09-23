@@ -31,3 +31,9 @@ dist/
 # Vercel detects for a project.
 package-lock.json
 yarn.lock
+
+# Rust project artifacts
+Cargo.lock
+target/
+**/target/**
+**/Cargo.toml.lock

@@ -1,6 +1,6 @@
 import { createHash, createPrivateKey, sign as edSign } from 'node:crypto';
 import type { Client } from 'pg';
-import { logger } from './log.js';
+import { logger } from './log.ts';
 
 /** Custom error for webhook signing failures. */
 export class WebhookSigningError extends Error {
@@ -12,7 +12,11 @@ export class WebhookSigningError extends Error {
 
 /** Custom error for webhook delivery failures. */
 export class WebhookDeliveryError extends Error {
-  constructor(message: string, public readonly statusCode?: number | null, public readonly transportError?: boolean) {
+  constructor(
+    message: string,
+    public readonly statusCode?: number | null,
+    public readonly transportError?: boolean,
+  ) {
     super(message);
     this.name = 'WebhookDeliveryError';
   }
@@ -68,7 +72,10 @@ export function parseRetryAfter(header: string | null | undefined, now: number):
     }
     return date;
   } catch (e) {
-    logger.error('Unexpected error parsing Retry-After header', { header, error: e instanceof Error ? e.message : String(e) });
+    logger.error('Unexpected error parsing Retry-After header', {
+      header,
+      error: e instanceof Error ? e.message : String(e),
+    });
     return null;
   }
 }
@@ -94,7 +101,10 @@ export function nextRetryAt(opts: {
     if (at - opts.createdAtMs >= DELIVERY_WINDOW_MS) return null;
     return new Date(at);
   } catch (e) {
-    logger.error('Failed to compute next retry at', { attempt: opts.attempt, error: e instanceof Error ? e.message : String(e) });
+    logger.error('Failed to compute next retry at', {
+      attempt: opts.attempt,
+      error: e instanceof Error ? e.message : String(e),
+    });
     return null;
   }
 }
@@ -126,11 +136,16 @@ export function signBody(body: string, privateKeyHex: string): string {
       type: 'pkcs8',
     });
     const signature = edSign(null, Buffer.from(body, 'utf8'), privateKey).toString('hex');
-    logger.debug('Webhook body signed successfully', { bodyDigest: createHash('sha256').update(body).digest('hex').slice(0, 8) });
+    logger.debug('Webhook body signed successfully', {
+      bodyDigest: createHash('sha256').update(body).digest('hex').slice(0, 8),
+    });
     return signature;
   } catch (e) {
     if (e instanceof WebhookSigningError) throw e;
-    throw new WebhookSigningError('Failed to sign webhook body', e instanceof Error ? e : undefined);
+    throw new WebhookSigningError(
+      'Failed to sign webhook body',
+      e instanceof Error ? e : undefined,
+    );
   }
 }
 
@@ -150,7 +165,10 @@ export function payloadFromRow(row: Record<string, unknown>): PaymentPayload {
     logger.debug('Payload extracted from row', { tx_hash: payload.tx_hash });
     return payload;
   } catch (e) {
-    logger.error('Failed to extract payload from row', { row, error: e instanceof Error ? e.message : String(e) });
+    logger.error('Failed to extract payload from row', {
+      row,
+      error: e instanceof Error ? e.message : String(e),
+    });
     throw new WebhookDeliveryError('Failed to extract payload from row', undefined, true);
   }
 }
@@ -170,8 +188,16 @@ export async function enqueueWebhookDelivery(
     );
     logger.info('Webhook delivery enqueued', { tx_hash: payment.tx_hash, url });
   } catch (e) {
-    logger.error('Failed to enqueue webhook delivery', { tx_hash: payment.tx_hash, url, error: e instanceof Error ? e.message : String(e) });
-    throw new WebhookDeliveryError(`Failed to enqueue webhook delivery for ${payment.tx_hash}`, undefined, true);
+    logger.error('Failed to enqueue webhook delivery', {
+      tx_hash: payment.tx_hash,
+      url,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw new WebhookDeliveryError(
+      `Failed to enqueue webhook delivery for ${payment.tx_hash}`,
+      undefined,
+      true,
+    );
   }
 }
 
@@ -207,7 +233,9 @@ export async function deliverDue(
        WHERE status = 'delivering' AND updated_at < now() - interval '1 minute'`,
     );
   } catch (e) {
-    logger.error('Failed to reset delivering deliveries', { error: e instanceof Error ? e.message : String(e) });
+    logger.error('Failed to reset delivering deliveries', {
+      error: e instanceof Error ? e.message : String(e),
+    });
     throw new WebhookDeliveryError('Failed to reset delivering deliveries', undefined, true);
   }
 
@@ -230,7 +258,9 @@ export async function deliverDue(
       [now],
     );
   } catch (e) {
-    logger.error('Failed to fetch due deliveries', { error: e instanceof Error ? e.message : String(e) });
+    logger.error('Failed to fetch due deliveries', {
+      error: e instanceof Error ? e.message : String(e),
+    });
     throw new WebhookDeliveryError('Failed to fetch due deliveries', undefined, true);
   }
 
@@ -245,7 +275,10 @@ export async function deliverDue(
       );
       if ((take.rowCount ?? 0) > 0) claimed.push(row);
     } catch (e) {
-      logger.error('Failed to claim delivery', { id: row.id, error: e instanceof Error ? e.message : String(e) });
+      logger.error('Failed to claim delivery', {
+        id: row.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -263,7 +296,10 @@ export async function deliverDue(
           [row.id],
         );
       } catch (e) {
-        logger.error('Failed to reset deadline-exceeded delivery', { id: row.id, error: e instanceof Error ? e.message : String(e) });
+        logger.error('Failed to reset deadline-exceeded delivery', {
+          id: row.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
       continue;
     }
@@ -288,7 +324,10 @@ export async function deliverDue(
           transportError: true,
         });
       } catch (e) {
-        logger.error('Failed to record unsigned payload attempt', { id: row.id, error: e instanceof Error ? e.message : String(e) });
+        logger.error('Failed to record unsigned payload attempt', {
+          id: row.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
       failed++;
       continue;
@@ -318,12 +357,9 @@ export async function deliverDue(
         const res = await Promise.race<Response>([
           fetchPromise,
           new Promise((_resolve, reject) => {
-            const id = setTimeout(
-              () => {
-                reject(Object.assign(new Error('webhook timeout'), { name: 'TimeoutError' }));
-              },
-              timeoutMs,
-            );
+            const id = setTimeout(() => {
+              reject(Object.assign(new Error('webhook timeout'), { name: 'TimeoutError' }));
+            }, timeoutMs);
             controller.signal.addEventListener('abort', () => {
               clearTimeout(id);
               reject(Object.assign(new Error('webhook timeout'), { name: 'TimeoutError' }));
@@ -357,7 +393,10 @@ export async function deliverDue(
       else if (terminal.status === 'failed' || terminal.status === 'dead_letter') failed++;
       else retried++;
     } catch (e) {
-      logger.error('Failed to record delivery attempt', { id: row.id, error: e instanceof Error ? e.message : String(e) });
+      logger.error('Failed to record delivery attempt', {
+        id: row.id,
+        error: e instanceof Error ? e.message : String(e),
+      });
       failed++;
     }
   }
@@ -417,8 +456,15 @@ async function recordAttempt(
     logger.debug('Attempt recorded', { id: input.id, status, attemptNumber: input.attemptNumber });
     return { id: input.id, status, statusCode: input.statusCode, error: input.error };
   } catch (e) {
-    logger.error('Failed to record webhook attempt', { id: input.id, error: e instanceof Error ? e.message : String(e) });
-    throw new WebhookDeliveryError(`Failed to record attempt for delivery ${input.id}`, undefined, true);
+    logger.error('Failed to record webhook attempt', {
+      id: input.id,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw new WebhookDeliveryError(
+      `Failed to record attempt for delivery ${input.id}`,
+      undefined,
+      true,
+    );
   }
 }
 
@@ -436,84 +482,88 @@ export async function pendingDue(client: Client, opts: { now?: Date } = {}): Pro
     logger.debug('Pending due count retrieved', { count });
     return count;
   } catch (e) {
-    logger.error('Failed to get pending due count', { error: e instanceof Error ? e.message : String(e) });
+    logger.error('Failed to get pending due count', {
+      error: e instanceof Error ? e.message : String(e),
+    });
     throw new WebhookDeliveryError('Failed to get pending due count', undefined, true);
   }
 }
 
 export async function webhookSummary(client: Client): Promise<{
-   pending: number;
-   failed: number;
-   deadLetter: number;
-   delivered: number;
-   lag: number;
-   recentFailed: Array<{
-     id: number;
-     paymentTxHash: string;
-     status: string;
-     attempts: number;
-     lastStatusCode: number | null;
-     lastError: string | null;
-     updatedAt: string;
-   }>;
- }> {
-   try {
-     const counts = await client.query<{ status: string; n: string }>(
-       `SELECT status, count(*)::text AS n FROM webhook_deliveries GROUP BY status`,
-     );
-     const byStatus: Record<string, number> = {
-       pending: 0,
-       failed: 0,
-       delivered: 0,
-       dead_letter: 0,
-     };
-     for (const row of counts.rows) byStatus[row.status] = Number(row.n);
+  pending: number;
+  failed: number;
+  deadLetter: number;
+  delivered: number;
+  lag: number;
+  recentFailed: Array<{
+    id: number;
+    paymentTxHash: string;
+    status: string;
+    attempts: number;
+    lastStatusCode: number | null;
+    lastError: string | null;
+    updatedAt: string;
+  }>;
+}> {
+  try {
+    const counts = await client.query<{ status: string; n: string }>(
+      `SELECT status, count(*)::text AS n FROM webhook_deliveries GROUP BY status`,
+    );
+    const byStatus: Record<string, number> = {
+      pending: 0,
+      failed: 0,
+      delivered: 0,
+      dead_letter: 0,
+    };
+    for (const row of counts.rows) byStatus[row.status] = Number(row.n);
 
-     const recent = await client.query<{
-       id: string;
-       payment_tx_hash: string;
-       status: string;
-       attempts: number;
-       last_status_code: number | null;
-       last_error: string | null;
-       updated_at: Date;
-     }>(
-       `SELECT id, payment_tx_hash, status, attempts, last_status_code, last_error, updated_at
+    const recent = await client.query<{
+      id: string;
+      payment_tx_hash: string;
+      status: string;
+      attempts: number;
+      last_status_code: number | null;
+      last_error: string | null;
+      updated_at: Date;
+    }>(
+      `SELECT id, payment_tx_hash, status, attempts, last_status_code, last_error, updated_at
         FROM webhook_deliveries
         WHERE status IN ('failed', 'dead_letter')
         ORDER BY updated_at DESC
         LIMIT 20`,
-     );
+    );
 
-     logger.debug('Webhook summary retrieved', {
-       pending: byStatus.pending,
-       delivered: byStatus.delivered,
-       failed: byStatus.failed,
-       deadLetter: byStatus.dead_letter,
-     });
+    logger.debug('Webhook summary retrieved', {
+      pending: byStatus.pending,
+      delivered: byStatus.delivered,
+      failed: byStatus.failed,
+      deadLetter: byStatus.dead_letter,
+    });
 
-     return {
-       pending: (byStatus.pending ?? 0) + (byStatus.delivering ?? 0),
-       failed: byStatus.failed ?? 0,
-       deadLetter: byStatus.dead_letter ?? 0,
-       delivered: byStatus.delivered ?? 0,
-       lag: await pendingDue(client),
-       recentFailed: recent.rows.map((row) => ({
-         id: Number(row.id),
-         paymentTxHash: row.payment_tx_hash,
-         status: row.status,
-         attempts: row.attempts,
-         lastStatusCode: row.last_status_code,
-         lastError: row.last_error,
-         updatedAt:
-           row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
-       })),
-     };
-   } catch (e) {
-     logger.error('Failed to retrieve webhook summary', { error: e instanceof Error ? e.message : String(e) });
-     throw new WebhookDeliveryError('Failed to retrieve webhook summary', undefined, true);
-   }
- }
+    return {
+      pending: (byStatus.pending ?? 0) + (byStatus.delivering ?? 0),
+      failed: byStatus.failed ?? 0,
+      deadLetter: byStatus.dead_letter ?? 0,
+      delivered: byStatus.delivered ?? 0,
+      lag: await pendingDue(client),
+      recentFailed: recent.rows.map((row) => ({
+        id: Number(row.id),
+        paymentTxHash: row.payment_tx_hash,
+        status: row.status,
+        attempts: row.attempts,
+        lastStatusCode: row.last_status_code,
+        lastError: row.last_error,
+        updatedAt:
+          row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+      })),
+    };
+  } catch (e) {
+    logger.error('Failed to retrieve webhook summary', {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    throw new WebhookDeliveryError('Failed to retrieve webhook summary', undefined, true);
+  }
+}
 
 /** Hash of the body, useful in tests to assert we signed the bytes we sent. */
 export function bodyDigest(body: string): string {
